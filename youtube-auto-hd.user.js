@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Auto HD + Cinema (Stay2)
 // @namespace    https://github.com/iamfux
-// @version      1.2.0
+// @version      1.2.1
 // @description  Auto-select YouTube quality by FPS (60/50/30), prefer enhanced bitrate / super resolution, force cinema mode, skip vertical videos. DIY replacement for the broken "Auto HD + FPS" Safari extension. Uses YouTube player internal API + DOM fallback.
 // @author       iamfux
 // @match        https://www.youtube.com/*
@@ -201,10 +201,17 @@
   }
 
   let qualityTimer = null;
+  // 全局去重：上次尝试 quality 的时间戳
+  let lastQualityAttempt = 0;
 
   function applyQuality() {
+    // 防抖：3 秒内不重复触发（避免多个事件叠加 + 避免无限循环）
+    const now = Date.now();
+    if (now - lastQualityAttempt < 3000) return;
+    lastQualityAttempt = now;
+
     if (qualityTimer) clearTimeout(qualityTimer);
-    let attemptsLeft = CONFIG.maxAttempts;
+    let attemptsLeft = 3;
 
     function attempt() {
       const video = getVisibleVideo();
@@ -245,10 +252,19 @@
   }
 
   let resizeTimer = null;
+  // 全局去重：上次尝试 resize 的时间戳 + 连续失败次数
+  let lastResizeAttempt = 0;
+  let resizeFailStreak = 0;
 
   function resizePlayerIfNeeded() {
+    // 防抖：2 秒内不重复触发（避免 canplay/visibility/navigate 等多个事件叠加）
+    const now = Date.now();
+    if (now - lastResizeAttempt < 2000) return;
+    lastResizeAttempt = now;
+
     if (resizeTimer) clearTimeout(resizeTimer);
-    let attemptsLeft = CONFIG.maxAttempts;
+    // 最多重试 3 次，3 次都没成功就放弃（防止无限闪烁）
+    let attemptsLeft = 3;
 
     function attempt() {
       const video = getVisibleVideo();
@@ -256,16 +272,36 @@
 
       const isVertical = CONFIG.excludeVertical && isVerticalVideo(video);
       const targetMode = (CONFIG.alwaysCinema && !isVertical) ? 1 : 0;
-      if (getCurrentViewMode() === targetMode) return;
+      if (getCurrentViewMode() === targetMode) {
+        resizeFailStreak = 0;
+        return;
+      }
 
       const toggle = findSizeToggle(video);
       if (!toggle) return;
 
       toggle.click();
       attemptsLeft--;
-      if (attemptsLeft > 0) {
-        resizeTimer = setTimeout(attempt, CONFIG.retryDelayMs);
-      }
+
+      // 点击后延迟检查是否真的切换成功
+      resizeTimer = setTimeout(() => {
+        if (getCurrentViewMode() === targetMode) {
+          resizeFailStreak = 0;
+          return;
+        }
+
+        // 没切换成功，继续重试
+        if (attemptsLeft > 0) {
+          attempt();
+        } else {
+          // 3 次都失败：记录失败，停止（避免闪烁）
+          resizeFailStreak++;
+          if (resizeFailStreak >= 3) {
+            // 彻底放弃本次会话的自动切换，等下次导航/加载再试
+            console.log("[YTAutoHD] cinema switch failed 3x, stopping");
+          }
+        }
+      }, 500);
     }
 
     resizeTimer = setTimeout(attempt, 0);
