@@ -8,6 +8,8 @@
 // @run-at       document-start
 // @grant        none
 // @noframes
+// @downloadURL  https://raw.githubusercontent.com/jackwude/youtube-auto-hd-userscript/main/youtube-auto-hd.user.js
+// @updateURL    https://raw.githubusercontent.com/jackwude/youtube-auto-hd-userscript/main/youtube-auto-hd.user.js
 // ==/UserScript==
 
 (function () {
